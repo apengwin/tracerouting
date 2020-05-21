@@ -1,13 +1,13 @@
 /*
- *   This is largely based on Martin Casado's intro to PCAP.
- *   Large amounts of this code were taken from tcpdump source
+ * This is largely based on Martin Casado's intro to PCAP.
+ * Large amounts of this code were taken from tcpdump source
  *
- *   print-ether.c
- *   print-ip.c
- *   ip.h
+ * print-ether.c
+ * print-ip.c
+ * ip.h
  *
  * Compile with:
- * gcc -Wall -pedantic filter.c -lpcap (-o foo_err_something)
+ * gcc -Wall -pedantic filter.c -lpcap
  *
  */
 
@@ -133,19 +133,31 @@ main(int argc,char **argv) {
                    &maskp,
                    errbuf);
 
+    // Do not open in promiscuous mode.
+    int promisc = 0;
+    // Set no timeout.
+    int to_ms = 0;
+
+    const int MAX_ETHER_SIZE = 1522;
     // open device for reading.
     descr = pcap_open_live(dev,
-                           BUFSIZ,
-                           0,
-                           0,
+                           MAX_ETHER_SIZE,
+                           promisc,
+                           to_ms,
                            errbuf);
+    printf("%d\n", BUFSIZ);
+
     if(descr == NULL) {
         printf("pcap_open_live(): %s\n",errbuf);
         exit(1);
     }
 
-    char *FILTER_STRING =
-      "ip && !(dst net 10.0.0.0/8) && !(dst net 172.16.0.0/12) && !(dst net 192.168.0.0/16)";
+    // Filter only ipv4 packets
+    // that aren't being sent to an internal address.
+    char *FILTER_STRING = "ip "
+                          "&& !(dst net 10.0.0.0/8) "
+                          "&& !(dst net 172.16.0.0/12) "
+                          "&& !(dst net 192.168.0.0/16)";
 
     // Lets try and compile the program.. non-optimized
     if(pcap_compile(descr,
