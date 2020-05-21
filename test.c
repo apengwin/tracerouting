@@ -1,4 +1,5 @@
 /*
+ *   This is largely based on Martin Casado's intro to PCAP.
  *   Large amounts of this code were taken from tcpdump source
  *
  *   print-ether.c
@@ -181,7 +182,8 @@ main(int argc,char **argv) {
         exit(1);
     }
 
-    const char *FILTER_STRING = "ip";
+    char *FILTER_STRING =
+      "ip && !(dst net 10.0.0.0/8) && !(dst net 172.16.0.0/12) && !(dst net 192.168.0.0/16)";
 
     // Lets try and compile the program.. non-optimized
     if(pcap_compile(descr,
