@@ -7,12 +7,6 @@
 #define ETHER_HDRLEN 14
 #endif
 
-
-int16_t
-get_eth_type (u_char *args,
-              const struct pcap_pkthdr* pkthdr,
-              const u_char* packet);
-
 /*
  * Structure of an internet header, naked of options.
  *
@@ -38,3 +32,9 @@ struct ip_pkt {
 	u_int16_t	ip_sum;		/* checksum */
 	struct	in_addr ip_src,ip_dst;	/* source and dest address */
 };
+
+
+int16_t
+get_eth_type (u_char *args,
+              const struct pcap_pkthdr* pkthdr,
+              const u_char* packet);
