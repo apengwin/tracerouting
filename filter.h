@@ -1,4 +1,3 @@
-
 #include <pcap.h>
 #include <net/ethernet.h>
 
@@ -35,6 +34,5 @@ struct ip_pkt {
 
 
 int16_t
-get_eth_type (u_char *args,
-              const struct pcap_pkthdr* pkthdr,
+get_eth_type (const struct pcap_pkthdr* pkthdr,
               const u_char* packet);

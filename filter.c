@@ -1,5 +1,5 @@
 /*
- * This is largely based on Martin Casado's intro to PCAP.
+ * This is largely based on Martin Casado's intro to PCAP. Thanks Martin!
  * Large amounts of this code were taken from tcpdump source
  *
  * print-ether.c
@@ -16,15 +16,22 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>
+#include <unistd.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <string.h>
 
+
+
+static int sockfd;
 
 void
-packet_callback (u_char *args,
-           const struct pcap_pkthdr* pkthdr,
-           const u_char* packet) {
+packet_callback (u_char *ignored,
+                 const struct pcap_pkthdr* pkthdr,
+                 const u_char* packet) {
 
     /* looking at ethernet headers */
-    int16_t type = get_eth_type(args, pkthdr, packet);
+    int16_t type = get_eth_type(pkthdr, packet);
     if(type != ETHERTYPE_IP) {
         fprintf(stderr,
                 "Bad ethernet header type %d. Problem with filter\n",
@@ -45,8 +52,7 @@ packet_callback (u_char *args,
     length -= sizeof(struct ether_header);
 
     /* check to see we have a packet of valid length */
-    if (length < sizeof(struct ip_pkt))
-    {
+    if (length < sizeof(struct ip_pkt)) {
         printf("truncated ip %d",length);
         return;
     }
@@ -63,19 +69,26 @@ packet_callback (u_char *args,
 
     /* check header length */
     if(hlen < 5 ) {
-        fprintf(stdout,"bad-hlen %d \n",hlen);
+        fprintf(stderr,"bad-hlen %d \n",hlen);
         return;
     }
 
     /* see if we have as much packet as we should */
-    if(length < len)
+    if(length < len) {
         printf("\ntruncated IP - %d bytes missing\n",len - length);
+    }
 
     /* Check to see if we have the first fragment */
     off = ntohs(ip->ip_off);
     // aka no 1's in first 13 bits
-    if((off & 0x1fff) == 0 )  {
-        fprintf(stdout,"IP: %s\n", inet_ntoa(ip->ip_dst));
+    if((off & 0x1fff) == 0 ) {
+        char *msg = inet_ntoa(ip->ip_dst);
+        char buf[strlen(msg) + 1];
+        strncpy(buf, msg, strlen(msg));
+        buf[strlen(msg)] = '\n';
+        if(send(sockfd , buf , strlen(msg) + 1 , 0) < 0) {
+            exit (1);
+        }
     }
 
     return;
@@ -87,12 +100,11 @@ packet_callback (u_char *args,
  * print-ether.c from tcpdump source
  */
 int16_t
-get_eth_type (u_char *args,
-              const struct pcap_pkthdr* pkthdr,
+get_eth_type (const struct pcap_pkthdr* pkthdr,
               const u_char* packet) {
 
     if (pkthdr->caplen < ETHER_HDRLEN) {
-        fprintf(stdout,"Packet length less than ethernet header length\n");
+        fprintf(stderr,"Packet length less than ethernet header length\n");
         return -1;
     }
 
@@ -114,8 +126,8 @@ main(int argc,char **argv) {
     bpf_u_int32 netp;
 
     // No options.
-    if(argc > 1) {
-        fprintf(stdout,"Usage: %s\n",argv[0]);
+    if(argc != 2) {
+        fprintf(stderr,"Usage: %s\n <sock_path>", argv[0]);
         return 0;
     }
 
@@ -145,7 +157,6 @@ main(int argc,char **argv) {
                            promisc,
                            to_ms,
                            errbuf);
-    printf("%d\n", BUFSIZ);
 
     if(descr == NULL) {
         printf("pcap_open_live(): %s\n",errbuf);
@@ -154,6 +165,7 @@ main(int argc,char **argv) {
 
     // Filter only ipv4 packets
     // that aren't being sent to an internal address.
+    // TODO: ipv6.
     char *FILTER_STRING = "ip "
                           "&& !(dst net 10.0.0.0/8) "
                           "&& !(dst net 172.16.0.0/12) "
@@ -175,13 +187,38 @@ main(int argc,char **argv) {
         exit(1);
     }
 
+    if ((sockfd = socket(AF_UNIX, SOCK_STREAM, 0)) < 0) {
+        fprintf(stderr, "Error opening socket");
+        exit(1);
+    }
+
+    if (access(argv[1], F_OK) != -1) {
+        if (unlink(argv[1]) != 0) {
+            perror("Error with unlinking existing socket");
+            exit(1);
+        }
+    }
+
+    struct sockaddr_un server;
+    server.sun_family = AF_UNIX;
+    strcpy(server.sun_path, argv[1]);
+    if (bind(sockfd, (const struct sockaddr *) &server, sizeof(struct sockaddr_un)) != 0) {
+        perror("binding stream socket");
+        exit(1);
+    }
+
+    if (listen(sockfd, 1) != 0) {
+        perror("problem with listening...");
+        exit(1);
+    }
+
     int loop_forever = -1;
     pcap_loop(descr,
               loop_forever,
               packet_callback,
               NULL);
 
-    fprintf(stdout,"\nfinished\n");
+    printf("\nfinished\n");
     return 0;
 }
 
