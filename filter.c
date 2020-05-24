@@ -23,12 +23,11 @@
 
 
 
-static int sockfd;
+static int conn_fd;
 
 void
-packet_callback (u_char *ignored,
-                 const struct pcap_pkthdr* pkthdr,
-                 const u_char* packet) {
+handle_packet (const struct pcap_pkthdr* pkthdr,
+               const u_char* packet) {
 
     /* looking at ethernet headers */
     int16_t type = get_eth_type(pkthdr, packet);
@@ -78,16 +77,16 @@ packet_callback (u_char *ignored,
         printf("\ntruncated IP - %d bytes missing\n",len - length);
     }
 
-    /* Check to see if we have the first fragment */
-    off = ntohs(ip->ip_off);
+    // Check to see if we have the first fragment
     // aka no 1's in first 13 bits
+    off = ntohs(ip->ip_off);
     if((off & 0x1fff) == 0 ) {
         char *msg = inet_ntoa(ip->ip_dst);
         char buf[strlen(msg) + 1];
         strncpy(buf, msg, strlen(msg));
         buf[strlen(msg)] = '\n';
-        if(send(sockfd , buf , strlen(msg) + 1 , 0) < 0) {
-            exit (1);
+        if(send(conn_fd , buf , strlen(msg) + 1 , 0) < 0) {
+            perror("Ignoring: ");
         }
     }
 
@@ -117,7 +116,6 @@ get_eth_type (const struct pcap_pkthdr* pkthdr,
 int
 main(int argc,char **argv) {
     char errbuf[PCAP_ERRBUF_SIZE];
-    pcap_t* descr;
     // Hold compiled program
     struct bpf_program filter_program;
     // subnet mask
@@ -127,7 +125,7 @@ main(int argc,char **argv) {
 
     // No options.
     if(argc != 2) {
-        fprintf(stderr,"Usage: %s\n <sock_path>", argv[0]);
+        fprintf(stderr,"Usage: %s <sock_path>\n", argv[0]);
         return 0;
     }
 
@@ -152,7 +150,7 @@ main(int argc,char **argv) {
 
     const int MAX_ETHER_SIZE = 1522;
     // open device for reading.
-    descr = pcap_open_live(dev,
+    pcap_t* descr = pcap_open_live(dev,
                            MAX_ETHER_SIZE,
                            promisc,
                            to_ms,
@@ -176,19 +174,21 @@ main(int argc,char **argv) {
                     &filter_program,
                     FILTER_STRING,
                     0,
-                    netp) == -1) {
-        fprintf(stderr,"Error calling pcap_compile\n");
+                    netp) == PCAP_ERROR) {
+
+        pcap_perror(descr, "Error calling pcap_compile: ");
         exit(1);
     }
 
     // set the compiled program as the filter
     if(pcap_setfilter(descr,&filter_program) == -1) {
-        fprintf(stderr,"Error setting filter\n");
+        pcap_perror(descr, "Error calling pcap_setfilter: ");
         exit(1);
     }
+    int sockfd;
 
     if ((sockfd = socket(AF_UNIX, SOCK_STREAM, 0)) < 0) {
-        fprintf(stderr, "Error opening socket");
+        perror("Error opening socket: ");
         exit(1);
     }
 
@@ -203,7 +203,7 @@ main(int argc,char **argv) {
     server.sun_family = AF_UNIX;
     strcpy(server.sun_path, argv[1]);
     if (bind(sockfd, (const struct sockaddr *) &server, sizeof(struct sockaddr_un)) != 0) {
-        perror("binding stream socket");
+        perror("Binding stream socket");
         exit(1);
     }
 
@@ -211,14 +211,16 @@ main(int argc,char **argv) {
         perror("problem with listening...");
         exit(1);
     }
+    conn_fd = accept(sockfd, 0, 0);
 
-    int loop_forever = -1;
-    pcap_loop(descr,
-              loop_forever,
-              packet_callback,
-              NULL);
+    struct pcap_pkthdr *pkt_header;
+    const u_char *pkt_data;
+    while (pcap_next_ex(descr, &pkt_header, &pkt_data) == 1) {
+        handle_packet(pkt_header, pkt_data);
+    }
 
-    printf("\nfinished\n");
-    return 0;
+    pcap_perror(descr, "Error: ");
+
+    return 1;
 }
 
