@@ -21,12 +21,16 @@
 #include <sys/un.h>
 #include <string.h>
 
+#include <sys/types.h>
+#include <sys/stat.h>
+#include "json.hpp"
 
+using json = nlohmann::json;
 
-static int conn_fd;
 
 void
-handle_packet (const struct pcap_pkthdr* pkthdr,
+handle_packet (int conn_fd,
+               const struct pcap_pkthdr* pkthdr,
                const u_char* packet) {
 
     /* looking at ethernet headers */
@@ -164,10 +168,10 @@ main(int argc,char **argv) {
     // Filter only ipv4 packets
     // that aren't being sent to an internal address.
     // TODO: ipv6.
-    char *FILTER_STRING = "ip "
-                          "&& !(dst net 10.0.0.0/8) "
-                          "&& !(dst net 172.16.0.0/12) "
-                          "&& !(dst net 192.168.0.0/16)";
+    char const *FILTER_STRING = "ip "
+                                "&& !(dst net 10.0.0.0/8) "
+                                "&& !(dst net 172.16.0.0/12) "
+                                "&& !(dst net 192.168.0.0/16)";
 
     // Lets try and compile the program.. non-optimized
     if(pcap_compile(descr,
@@ -207,16 +211,19 @@ main(int argc,char **argv) {
         exit(1);
     }
 
+    umask(0);
     if (listen(sockfd, 1) != 0) {
         perror("problem with listening...");
         exit(1);
     }
-    conn_fd = accept(sockfd, 0, 0);
+    fprintf(stderr, "Listening on socket....\n");
+    int conn_fd = accept(sockfd, 0, 0);
+    fprintf(stderr, "Successfully connected.\n");
 
     struct pcap_pkthdr *pkt_header;
     const u_char *pkt_data;
     while (pcap_next_ex(descr, &pkt_header, &pkt_data) == 1) {
-        handle_packet(pkt_header, pkt_data);
+        handle_packet(conn_fd, pkt_header, pkt_data);
     }
 
     pcap_perror(descr, "Error: ");
